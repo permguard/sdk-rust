@@ -1,3 +1,6 @@
+// Copyright (c) 2022 Nitro Agility S.r.l.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
@@ -17,13 +20,21 @@ use tokio::{fs};
 
 
 #[tokio::main]
-async fn main()  -> Result<(), Box<dyn std::error::Error>> {
-    /*
-    match first_test().await {
-        Ok(value) => value,
-        Err(value) => return value,
-    }*/
-    match atomic_test().await {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let result = match std::env::args().nth(1).as_deref() {
+        None | Some("atomic") => atomic_test().await,
+        Some("json") => json_test().await,
+        Some("first") => first_test().await,
+        Some(example) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown example '{example}'; expected one of: atomic, json, first"),
+            )
+            .into());
+        }
+    };
+
+    match result {
         Ok(value) => value,
         Err(value) => return value,
     }
