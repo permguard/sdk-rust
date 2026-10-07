@@ -7,13 +7,14 @@ use permguard::{Action, Client, Entity, EvaluateRequest};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let endpoint = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "http://127.0.0.1:9094".to_owned());
+        .or_else(|| std::env::var("PERMGUARD_PDP_URL").ok())
+        .unwrap_or_else(|| "grpc://localhost:7443".to_owned());
     let client = Client::new(endpoint)?;
 
-    let mut request = EvaluateRequest::new("acme", "main");
-    request.profile = Some("default".to_owned());
-    request.subject = Some(Entity::new("user", "amy"));
-    request.resource = Some(Entity::new("document", "quarterly-report"));
+    let mut request = EvaluateRequest::new("acme", "main-ledger");
+    request.profile = Some("gateway".to_owned());
+    request.subject = Some(Entity::new("User", "alice"));
+    request.resource = Some(Entity::new("Document", "budget-2026"));
     request.action = Some(Action::new("read"));
     request.request_id = Some("example-1".to_owned());
 
