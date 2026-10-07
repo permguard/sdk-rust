@@ -1,28 +1,47 @@
+# Copyright (c) 2022 Nitro Agility S.r.l.
+# SPDX-License-Identifier: Apache-2.0
+
 [package]
 name = "permguard"
 version = "0.0.0"
 edition = "2024"
-keywords = ["permguard", "authz"]
-categories = ["development-tools"]
-homepage = "https://www.permguard.com"
+rust-version = "1.85"
+keywords = ["authorization", "security", "pdp", "permguard", "grpc"]
+categories = ["api-bindings", "authentication"]
+homepage = "https://www.permguard.com/"
 license = "Apache-2.0"
 repository = "https://github.com/permguard/sdk-rust"
-description = "The official Rust SDK for Permguard"
-
-[lib]
-name = "permguard"
-crate-type = ["lib"]  # could also include "cdylib", "rlib", etc.
+description = "Official Rust SDK for the native Permguard PDP v1 HTTP and gRPC interfaces"
+readme = "README.md"
+include = [
+  "src/**",
+  "proto/**",
+  "examples/**",
+  "build.rs",
+  "Cargo.toml",
+  "Cargo.lock",
+  "README.md",
+  "LICENSE",
+  "NOTICE.md",
+  "THIRD_PARTY_NOTICES.md",
+  "TRADEMARKS.md",
+]
 
 [dependencies]
-tonic = "0.14.2"
 prost = "0.14"
-tonic-prost = "0.14.2"
-prost-types = "0.14.1"
-serde_json = "1.0.145"
-serde = { version = "1.0.228", features = ["derive"] }
+prost-types = "0.14"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tonic = { version = "0.14", default-features = false, features = ["channel", "codegen", "tls-ring", "tls-webpki-roots"] }
+tonic-prost = "0.14"
 
 [dev-dependencies]
-tokio = { version = "1.0", features = ["full"] }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.14", default-features = false, features = ["router", "server"] }
 
 [build-dependencies]
-tonic-prost-build = "0.14.2"
+tonic-prost-build = "0.14"

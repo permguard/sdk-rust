@@ -1,4 +1,4 @@
-# Copyright 2024 Nitro Agility S.r.l.
+# Copyright (c) 2022 Nitro Agility S.r.l.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +22,18 @@ includes:
     optional: true
 
 tasks:
+  check:
+    desc: Format, lint, and test every SDK target.
+    cmds:
+      - cargo fmt --all -- --check
+      - cargo clippy --all-targets --all-features --locked -- -D warnings
+      - cargo test --all-targets --locked
+
+  package:
+    desc: Verify the crate that would be published to crates.io.
+    cmds:
+      - cargo package --locked
+
   notices:
     desc: Regenerate THIRD_PARTY_NOTICES.md from the resolved dependency graph.
     cmds:
@@ -31,4 +43,3 @@ tasks:
     desc: Check that THIRD_PARTY_NOTICES.md matches the dependency graph.
     cmds:
       - ./scripts/third-party-notices.sh --check
-

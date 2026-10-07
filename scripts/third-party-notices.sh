@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2024 Nitro Agility S.r.l.
+# Copyright (c) 2022 Nitro Agility S.r.l.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -157,6 +157,9 @@ fi
 
 rendered="$(
     cat <<HEADER
+<!-- Copyright (c) 2022 Nitro Agility S.r.l. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # Third-Party Notices
 
 The Permguard Rust SDK is distributed under the Apache License, Version 2.0. It links the
@@ -167,7 +170,7 @@ versions a build receives — and is checked in CI. Do not edit it by hand: run 
 (or \`make notices\`) instead.
 
 Development dependencies are excluded: a notice covers what is distributed, and a test harness is
-not. Build dependencies are included, because a build script's terms travel with the artifact it
+not. Build dependencies are included, because build-script terms travel with the artifact they
 helped produce.
 
 Licences are the SPDX expressions each package declares. Where a package declares none, the entry
