@@ -359,6 +359,7 @@ fn refusal_from_grpc(status: tonic::Status) -> Error {
 fn http_class(status: u16) -> &'static str {
     match status {
         400 | 422 => "validation",
+        409 => "conflict",
         401 | 403 => "authorization",
         404 => "not_found",
         503 | 504 => "unavailable",
@@ -368,9 +369,10 @@ fn http_class(status: u16) -> &'static str {
 
 fn grpc_class(status: tonic::Code) -> &'static str {
     match status {
-        tonic::Code::InvalidArgument
-        | tonic::Code::FailedPrecondition
-        | tonic::Code::OutOfRange => "validation",
+        tonic::Code::InvalidArgument | tonic::Code::OutOfRange => "validation",
+        tonic::Code::FailedPrecondition | tonic::Code::AlreadyExists | tonic::Code::Aborted => {
+            "conflict"
+        }
         tonic::Code::Unauthenticated | tonic::Code::PermissionDenied => "authorization",
         tonic::Code::NotFound => "not_found",
         tonic::Code::Unavailable | tonic::Code::DeadlineExceeded => "unavailable",

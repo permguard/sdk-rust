@@ -86,6 +86,14 @@ async fn http_uses_native_paths_and_preserves_empty_partition_inputs() {
     assert_eq!(refusal.code, "invalid_ledger");
     assert_eq!(refusal.http_status, Some(422));
 
+    let mut conflict = sample_request();
+    conflict.ledger = "conflict".to_owned();
+    let Error::Refusal(refusal) = client.evaluate_many(&conflict).await.unwrap_err() else {
+        panic!("expected conflict refusal");
+    };
+    assert_eq!(refusal.error_class, "conflict");
+    assert_eq!(refusal.http_status, Some(409));
+
     let _ = shutdown_tx.send(());
     server.await.unwrap();
 }
@@ -101,6 +109,7 @@ async fn http_evaluate(
         .unwrap()
         .push("/access/v1/evaluations".to_owned());
     let refuse = body["ledger"] == "refuse";
+    let conflict = body["ledger"] == "conflict";
     *state.body.lock().unwrap() = Some(body);
     *state.tenant.lock().unwrap() = headers
         .get("x-tenant")
@@ -114,6 +123,12 @@ async fn http_evaluate(
                 "code": "invalid_ledger",
                 "message": "bad ledger"
             })),
+        );
+    }
+    if conflict {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "code": "ledger_conflict", "message": "ledger changed" })),
         );
     }
     (
@@ -169,6 +184,14 @@ async fn grpc_uses_native_service_and_maps_refusal_metadata() {
     assert_eq!(refusal.error_class, "validation");
     assert_eq!(refusal.code, "invalid_ledger");
     assert_eq!(refusal.grpc_status, Some(tonic::Code::InvalidArgument));
+
+    let mut conflict = sample_request();
+    conflict.ledger = "conflict".to_owned();
+    let Error::Refusal(refusal) = client.evaluate(&conflict).await.unwrap_err() else {
+        panic!("expected conflict refusal");
+    };
+    assert_eq!(refusal.error_class, "conflict");
+    assert_eq!(refusal.grpc_status, Some(tonic::Code::FailedPrecondition));
 
     let _ = shutdown_tx.send(());
     server.await.unwrap();
@@ -230,6 +253,9 @@ fn respond(request: proto::EvaluateRequest) -> Result<Response<proto::EvaluateRe
             .metadata_mut()
             .insert("permguard-error-code", "invalid_ledger".parse().unwrap());
         return Err(status);
+    }
+    if request.ledger == "conflict" {
+        return Err(Status::failed_precondition("ledger changed"));
     }
     Ok(Response::new(proto::EvaluateResponse {
         decision: true,
