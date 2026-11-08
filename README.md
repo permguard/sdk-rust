@@ -96,7 +96,8 @@ Every other `Error` variant says the endpoint, an option or the transport failed
 
 ## Partition inputs
 
-Runtime data is addressed to the partition name the ledger's profile declares:
+Runtime data is addressed to the partition name the ledger's profile declares.
+The data is a `serde_json::Value`, so the `json!` macro below needs `serde_json` in your own dependencies, as Tokio does: `cargo add serde_json`.
 
 ```rust
 use permguard::PartitionInput;
