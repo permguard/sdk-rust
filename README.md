@@ -55,7 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new("grpc://localhost:7443")?;
 
     let mut request = EvaluateRequest::new("acme", "main-ledger");
-    request.profile = Some("gateway".to_owned());
     request.subject = Some(Entity::new("User", "alice"));
     request.resource = Some(Entity::new("Document", "budget-2026"));
     request.action = Some(Action::new("read"));
@@ -74,6 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The same program is in [examples/main.rs](examples/main.rs): `cargo run --example main -- grpc://localhost:7443`.
+
+A request that names no `profile` is decided by the ledger's `default` profile: the manifest `permguard init` writes declares it, with one partition, `cedar`.
+A ledger whose manifest declares other profiles is asked with the profile's name, and its partition inputs are keyed by that profile's partitions.
 
 ### The request
 
@@ -104,7 +106,7 @@ use permguard::PartitionInput;
 use serde_json::json;
 
 request.partition_inputs.insert(
-    "authorization".to_owned(),
+    "cedar".to_owned(),
     PartitionInput::new(
         "permguard.cedar.entities.v1",
         json!([{

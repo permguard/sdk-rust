@@ -12,7 +12,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(endpoint)?;
 
     let mut request = EvaluateRequest::new("acme", "main-ledger");
-    request.profile = Some("gateway".to_owned());
     request.subject = Some(Entity::new("User", "alice"));
     request.resource = Some(Entity::new("Document", "budget-2026"));
     request.action = Some(Action::new("read"));
