@@ -463,3 +463,35 @@ async fn grpcs_completes_a_tls_handshake_and_carries_the_bearer_token() {
     ));
     server.abort();
 }
+
+/// BUG-0306, BUG-0307: 2^53 crosses gRPC, as the server takes it; an integer past it is the
+/// `Error::Refusal` the server answers over HTTP, class `validation`, code `value_unrepresentable`.
+#[test]
+fn grpc_values_follow_the_servers_rule() {
+    let ask = |value: serde_json::Value| {
+        let mut request = sample_request();
+        request.context = Some(json!({ "n": value }).as_object().unwrap().clone());
+        crate::mapper::request_to_proto(&request)
+    };
+    for value in [
+        json!(9_007_199_254_740_992_u64),
+        json!(-9_007_199_254_740_992_i64),
+        json!(0.5),
+    ] {
+        assert!(ask(value.clone()).is_ok(), "{value}");
+    }
+    for value in [
+        json!(9_007_199_254_740_993_u64),
+        json!(-9_007_199_254_740_993_i64),
+        json!(u64::MAX),
+    ] {
+        let Err(Error::Refusal(refusal)) = ask(value.clone()) else {
+            panic!("{value}: expected a refusal");
+        };
+        assert_eq!(
+            (refusal.error_class.as_str(), refusal.code.as_str()),
+            ("validation", "value_unrepresentable"),
+            "{value}"
+        );
+    }
+}

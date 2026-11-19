@@ -13,7 +13,8 @@ use crate::model::{
 };
 use crate::proto;
 
-const MAXIMUM_EXACT_INTEGER: u64 = 9_007_199_254_740_991;
+/// The largest integer both transports carry exactly, the server's bound: 2^53 (BUG-0306).
+const MAXIMUM_EXACT_INTEGER: u64 = 9_007_199_254_740_992;
 
 pub(crate) fn request_to_proto(source: &EvaluateRequest) -> Result<proto::EvaluateRequest, Error> {
     Ok(proto::EvaluateRequest {
@@ -120,18 +121,28 @@ fn value_to_proto(source: &serde_json::Value) -> Result<Value, Error> {
     Ok(Value { kind: Some(kind) })
 }
 
+/// An integer past ±2^53 refused as the PDP refuses it over HTTP, the same `Error::Refusal`
+/// with class `validation` and code `value_unrepresentable` on both transports (BUG-0307).
+fn unrepresentable(value: impl std::fmt::Display) -> Error {
+    Error::Refusal(crate::Refusal {
+        error_class: "validation".to_owned(),
+        code: "value_unrepresentable".to_owned(),
+        message: format!(
+            "{value} is beyond the largest integer both transports carry exactly (2^53): send it as a string"
+        ),
+        http_status: None,
+        grpc_status: None,
+    })
+}
+
 fn number_to_f64(source: &Number) -> Result<f64, Error> {
     if let Some(value) = source.as_i64() {
         if value.unsigned_abs() > MAXIMUM_EXACT_INTEGER {
-            return Err(Error::InvalidValue(format!(
-                "integer {value} is not exactly representable by protobuf Value"
-            )));
+            return Err(unrepresentable(value));
         }
     } else if let Some(value) = source.as_u64() {
         if value > MAXIMUM_EXACT_INTEGER {
-            return Err(Error::InvalidValue(format!(
-                "integer {value} is not exactly representable by protobuf Value"
-            )));
+            return Err(unrepresentable(value));
         }
     }
     source
