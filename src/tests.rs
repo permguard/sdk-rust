@@ -94,6 +94,27 @@ async fn http_uses_native_paths_and_preserves_empty_partition_inputs() {
     assert_eq!(refusal.error_class, "conflict");
     assert_eq!(refusal.http_status, Some(409));
 
+    // BUG-0281: a denial's code is kept, its class filled from the status.
+    for (ledger, status, code, message) in [
+        ("unauthenticated", 401, "unauthenticated", "no token"),
+        ("forbidden", 403, "forbidden", "no grant"),
+    ] {
+        let mut denied = sample_request();
+        denied.ledger = ledger.to_owned();
+        let Error::Refusal(refusal) = client.evaluate_many(&denied).await.unwrap_err() else {
+            panic!("expected a denial");
+        };
+        assert_eq!(
+            (
+                refusal.error_class.as_str(),
+                refusal.code.as_str(),
+                refusal.message.as_str(),
+                refusal.http_status
+            ),
+            ("authorization", code, message, Some(status))
+        );
+    }
+
     let _ = shutdown_tx.send(());
     server.await.unwrap();
 }
@@ -108,6 +129,7 @@ async fn http_evaluate(
         .lock()
         .unwrap()
         .push("/access/v1/evaluations".to_owned());
+    let ledger = body["ledger"].as_str().unwrap_or_default().to_owned();
     let refuse = body["ledger"] == "refuse";
     let conflict = body["ledger"] == "conflict";
     *state.body.lock().unwrap() = Some(body);
@@ -129,6 +151,19 @@ async fn http_evaluate(
         return (
             StatusCode::CONFLICT,
             Json(json!({ "code": "ledger_conflict", "message": "ledger changed" })),
+        );
+    }
+    // A denial carries no class on the wire (BUG-0281).
+    if ledger == "unauthenticated" {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "code": "unauthenticated", "message": "no token" })),
+        );
+    }
+    if ledger == "forbidden" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "code": "forbidden", "message": "no grant" })),
         );
     }
     (
@@ -299,4 +334,132 @@ fn configuration_json() -> Value {
             "profile": "profile"
         }
     })
+}
+
+/// BUG-0311: an IPv6 literal endpoint reaches its listener over HTTP and gRPC.
+#[tokio::test]
+async fn an_ipv6_literal_endpoint_reaches_its_listener() {
+    let Ok(listener) = TcpListener::bind("[::1]:0").await else {
+        eprintln!("no IPv6 loopback here: skipped");
+        return;
+    };
+    let address = listener.local_addr().unwrap();
+    let router = Router::new()
+        .route("/access/v1/evaluation", post(http_evaluate))
+        .with_state(HttpState::default());
+    let http = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let client = Client::new(format!("http://[::1]:{}", address.port())).unwrap();
+    assert!(client.evaluate(&sample_request()).await.unwrap().decision);
+    http.abort();
+
+    let listener = TcpListener::bind("[::1]:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let incoming = TcpListenerStream::new(listener);
+    let grpc = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(
+                proto::policy_decision_point_server::PolicyDecisionPointServer::new(TestPdp),
+            )
+            .serve_with_incoming(incoming)
+            .await
+            .unwrap();
+    });
+    let client = Client::new(format!("grpc://[::1]:{}", address.port())).unwrap();
+    assert!(client.evaluate(&sample_request()).await.unwrap().decision);
+    grpc.abort();
+}
+
+/// A PDP that answers with the bearer token it was sent.
+#[derive(Debug, Default)]
+struct TokenPdp(Arc<Mutex<Option<String>>>);
+
+#[tonic::async_trait]
+impl proto::policy_decision_point_server::PolicyDecisionPoint for TokenPdp {
+    async fn evaluate(
+        &self,
+        request: Request<proto::EvaluateRequest>,
+    ) -> Result<Response<proto::EvaluateResponse>, Status> {
+        *self.0.lock().unwrap() = request
+            .metadata()
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        respond(request.into_inner())
+    }
+
+    async fn evaluate_many(
+        &self,
+        request: Request<proto::EvaluateRequest>,
+    ) -> Result<Response<proto::EvaluateResponse>, Status> {
+        respond(request.into_inner())
+    }
+
+    async fn get_configuration(
+        &self,
+        request: Request<proto::GetConfigurationRequest>,
+    ) -> Result<Response<proto::GetConfigurationResponse>, Status> {
+        TestPdp.get_configuration(request).await
+    }
+}
+
+/// BUG-0275: `grpcs://` is TLS: a PDP whose certificate chains to the CA the options name is
+/// reached, and a bearer token travels to it; without a configuration the webpki roots are used,
+/// so a private CA is refused at the handshake rather than never attempted. TLS on `grpc://` is
+/// refused when the client is built.
+#[tokio::test]
+async fn grpcs_completes_a_tls_handshake_and_carries_the_bearer_token() {
+    use tonic::transport::{Certificate, ClientTlsConfig, Identity, ServerTlsConfig};
+
+    let rcgen::CertifiedKey { cert, signing_key } =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+    let identity = Identity::from_pem(cert.pem(), signing_key.serialize_pem());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let incoming = TcpListenerStream::new(listener);
+    let token = Arc::new(Mutex::new(None));
+    let pdp = TokenPdp(Arc::clone(&token));
+    let server = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .tls_config(ServerTlsConfig::new().identity(identity))
+            .unwrap()
+            .add_service(proto::policy_decision_point_server::PolicyDecisionPointServer::new(pdp))
+            .serve_with_incoming(incoming)
+            .await
+            .unwrap();
+    });
+
+    let endpoint = format!("grpcs://localhost:{}", address.port());
+    let client = Client::with_options(
+        &endpoint,
+        ClientOptions::default()
+            .with_grpc_tls(
+                ClientTlsConfig::new()
+                    .ca_certificate(Certificate::from_pem(cert.pem()))
+                    .domain_name("localhost"),
+            )
+            .with_header("authorization", "Bearer t1"),
+    )
+    .unwrap();
+    assert!(client.evaluate(&sample_request()).await.unwrap().decision);
+    assert_eq!(token.lock().unwrap().as_deref(), Some("Bearer t1"));
+
+    // The webpki roots do not hold the private CA: refused at the handshake.
+    let refused = Client::new(&endpoint)
+        .unwrap()
+        .evaluate(&sample_request())
+        .await
+        .unwrap_err();
+    assert!(
+        !refused.to_string().contains("without TLS enabled"),
+        "{refused}"
+    );
+    // TLS asked of a plaintext endpoint is a configuration mistake.
+    assert!(matches!(
+        Client::with_options(
+            format!("grpc://localhost:{}", address.port()),
+            ClientOptions::default().with_grpc_tls(ClientTlsConfig::new()),
+        ),
+        Err(Error::InvalidOption(_))
+    ));
+    server.abort();
 }

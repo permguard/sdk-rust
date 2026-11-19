@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tonic::metadata::{Ascii, MetadataKey, MetadataValue};
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 
 use crate::error::{Error, Refusal};
 use crate::mapper::{configuration_from_proto, request_to_proto, response_from_proto};
@@ -29,6 +29,9 @@ pub struct ClientOptions {
     pub headers: BTreeMap<String, String>,
     /// Optional preconfigured client used for HTTP endpoints.
     pub http_client: Option<reqwest::Client>,
+    /// The TLS configuration of a `grpcs://` endpoint: a CA, a server name, a client identity.
+    /// Without it, `grpcs://` verifies the server against the webpki roots.
+    pub grpc_tls: Option<ClientTlsConfig>,
 }
 
 impl Default for ClientOptions {
@@ -37,6 +40,7 @@ impl Default for ClientOptions {
             timeout: Duration::from_secs(5),
             headers: BTreeMap::new(),
             http_client: None,
+            grpc_tls: None,
         }
     }
 }
@@ -60,6 +64,14 @@ impl ClientOptions {
     #[must_use]
     pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
         self.http_client = Some(client);
+        self
+    }
+
+    /// Supplies the TLS configuration of a `grpcs://` endpoint: a private CA
+    /// (`ca_certificate`), the name to verify (`domain_name`), a client identity (`identity`).
+    #[must_use]
+    pub fn with_grpc_tls(mut self, tls: ClientTlsConfig) -> Self {
+        self.grpc_tls = Some(tls);
         self
     }
 }
@@ -124,13 +136,23 @@ impl Client {
                 headers: http_headers(&options.headers)?,
             },
             "grpc" | "grpcs" => {
-                let scheme = if parsed.scheme() == "grpcs" {
-                    "https"
-                } else {
-                    "http"
-                };
+                let secure = parsed.scheme() == "grpcs";
+                let scheme = if secure { "https" } else { "http" };
                 let address = format!("{scheme}://{}", authority(&parsed)?);
-                let channel = Endpoint::from_shared(address)?.connect_lazy();
+                let endpoint = Endpoint::from_shared(address)?;
+                // `grpcs://` is TLS: the configuration given, or the webpki roots.
+                let endpoint = match (secure, options.grpc_tls) {
+                    (true, tls) => endpoint.tls_config(
+                        tls.unwrap_or_else(|| ClientTlsConfig::new().with_webpki_roots()),
+                    )?,
+                    (false, None) => endpoint,
+                    (false, Some(_)) => {
+                        return Err(Error::InvalidOption(
+                            "a gRPC TLS configuration needs a grpcs:// endpoint".to_owned(),
+                        ));
+                    }
+                };
+                let channel = endpoint.connect_lazy();
                 Transport::Grpc {
                     channel,
                     headers: grpc_headers(&options.headers)?,
@@ -240,14 +262,12 @@ impl Client {
 }
 
 fn authority(url: &reqwest::Url) -> Result<String, Error> {
+    // `host_str` writes an IPv6 literal in its brackets already: bracketing it again made
+    // `[[::1]]`, which neither transport parses.
     let host = url
         .host_str()
-        .ok_or_else(|| Error::InvalidEndpoint("host is required".to_owned()))?;
-    let host = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_owned()
-    };
+        .ok_or_else(|| Error::InvalidEndpoint("host is required".to_owned()))?
+        .to_owned();
     Ok(url
         .port()
         .map_or(host.clone(), |port| format!("{host}:{port}")))

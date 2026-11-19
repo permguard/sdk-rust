@@ -8,9 +8,13 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Error)]
 #[error("{code}: {message}")]
 pub struct Refusal {
-    #[serde(rename = "class")]
+    /// The error class. A denial (`unauthenticated`, `forbidden`) carries none on the wire: it is
+    /// filled from the HTTP status, and the body's `code` is kept.
+    #[serde(rename = "class", default)]
     pub error_class: String,
+    #[serde(default)]
     pub code: String,
+    #[serde(default)]
     pub message: String,
     #[serde(skip)]
     pub http_status: Option<u16>,

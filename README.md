@@ -33,7 +33,7 @@ This crate is how Rust code asks: one async client for the native, stateless PDP
 
 ## Install
 
-The crate needs Rust 1.85 or newer.
+The crate needs Rust 1.85 or newer, and nothing else to build: its gRPC bindings are part of the crate, so no `protoc` is needed.
 Its client is async and runs on Tokio, so an application adds both:
 
 ```console
@@ -172,11 +172,29 @@ let client = Client::with_options(
 let configuration = client.get_configuration().await?;
 ```
 
-| Option             | Sets                                        |
-| ------------------ | ------------------------------------------- |
-| `with_timeout`     | the timeout of every call                   |
-| `with_header`      | a static header, also sent as gRPC metadata |
-| `with_http_client` | a preconfigured `reqwest::Client` for HTTP  |
+| Option             | Sets                                                                             |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `with_timeout`     | the timeout of every call                                                        |
+| `with_header`      | a static header, also sent as gRPC metadata                                      |
+| `with_http_client` | a preconfigured `reqwest::Client` for HTTP                                       |
+| `with_grpc_tls`    | the TLS of a `grpcs://` endpoint: a private CA, a server name, a client identity |
+
+A `grpcs://` endpoint verifies the data plane's certificate against the webpki roots unless `with_grpc_tls` names a CA:
+
+```rust
+use permguard::{Certificate, ClientOptions, ClientTlsConfig};
+
+let client = Client::with_options(
+    "grpcs://pdp.example.com:7443",
+    ClientOptions::default().with_grpc_tls(
+        ClientTlsConfig::new()
+            .ca_certificate(Certificate::from_pem(std::fs::read("ca.pem")?))
+            .domain_name("pdp.example.com"),
+    ),
+)?;
+```
+
+An endpoint's host may be a name, an IPv4 address, or an IPv6 address in brackets: `grpc://[::1]:7443`.
 
 `get_configuration` reads the data plane's discovery document.
 The client is cheap to clone and reuses its HTTP pool or gRPC channel: create it once and share it.
@@ -208,6 +226,12 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all-targets --locked
 cargo package --locked
+```
+
+The gRPC bindings in `src/generated/` are generated from `proto/pdp.proto`; after changing it, regenerate them, which needs `protoc`:
+
+```console
+PERMGUARD_REGENERATE_PROTO=1 cargo build
 ```
 
 The published crate includes `LICENSE`, `NOTICE.md`, `THIRD_PARTY_NOTICES.md` and `TRADEMARKS.md`.

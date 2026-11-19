@@ -26,6 +26,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
 
+      - name: Verify the committed gRPC bindings are current
+        run: |
+          PERMGUARD_REGENERATE_PROTO=1 cargo build --locked
+          git diff --exit-code src/generated
+
       - name: Verify source
         run: |
           cargo fmt --all -- --check
