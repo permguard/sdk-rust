@@ -206,7 +206,8 @@ impl Client {
                     .timeout(self.timeout)
                     .json(request)
                     .send()
-                    .await?;
+                    .await
+                    .map_err(http_failure)?;
                 decode_http(response).await
             }
             Transport::Grpc { channel, headers } => {
@@ -240,7 +241,8 @@ impl Client {
                     .headers(headers.clone())
                     .timeout(self.timeout)
                     .send()
-                    .await?;
+                    .await
+                    .map_err(http_failure)?;
                 decode_http(response).await
             }
             Transport::Grpc { channel, headers } => {
@@ -320,7 +322,7 @@ async fn decode_http<T: serde::de::DeserializeOwned>(
             "HTTP response exceeds {MAXIMUM_RESPONSE_BYTES} bytes"
         )));
     }
-    let bytes = response.bytes().await?;
+    let bytes = response.bytes().await.map_err(http_failure)?;
     if bytes.len() > MAXIMUM_RESPONSE_BYTES {
         return Err(Error::InvalidValue(format!(
             "HTTP response exceeds {MAXIMUM_RESPONSE_BYTES} bytes"
@@ -352,7 +354,49 @@ async fn decode_http<T: serde::de::DeserializeOwned>(
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// A call that failed in the client, said as over gRPC and in every Permguard SDK (BUG-0284).
+fn http_failure(error: reqwest::Error) -> Error {
+    if error.is_timeout() {
+        return Refusal::client_failure(
+            Refusal::TIMEOUT,
+            format!("the data plane did not answer in time: {error}"),
+        )
+        .into();
+    }
+    if error.is_connect() {
+        return Refusal::client_failure(
+            Refusal::UNREACHABLE,
+            format!("the data plane could not be reached: {error}"),
+        )
+        .into();
+    }
+    Error::Http(error)
+}
+
 fn refusal_from_grpc(status: tonic::Status) -> Error {
+    // A status the data plane did not name is the transport's: the call's timeout, which tonic
+    // reports as `Cancelled` "Timeout expired", or a plane never reached, said as over HTTP and
+    // in every Permguard SDK (BUG-0284).
+    let metadata = status.metadata();
+    if !metadata.contains_key("permguard-error-class")
+        && !metadata.contains_key("permguard-error-code")
+    {
+        let timed_out = status.code() == tonic::Code::DeadlineExceeded
+            || (status.code() == tonic::Code::Cancelled
+                && status.message() == tonic::TimeoutExpired(()).to_string());
+        let code = if timed_out {
+            Some(Refusal::TIMEOUT)
+        } else if status.code() == tonic::Code::Unavailable {
+            Some(Refusal::UNREACHABLE)
+        } else {
+            None
+        };
+        if let Some(code) = code {
+            let mut refusal = Refusal::client_failure(code, status.message().to_owned());
+            refusal.grpc_status = Some(status.code());
+            return refusal.into();
+        }
+    }
     let error_class = status
         .metadata()
         .get("permguard-error-class")

@@ -22,6 +22,26 @@ pub struct Refusal {
     pub grpc_status: Option<tonic::Code>,
 }
 
+impl Refusal {
+    /// The class of a call that failed in the client, the same on HTTP and gRPC and in every
+    /// Permguard SDK (BUG-0284).
+    pub const UNAVAILABLE: &'static str = "unavailable";
+    /// The code of a call whose timeout passed before the data plane answered.
+    pub const TIMEOUT: &'static str = "timeout";
+    /// The code of a call that could not reach the data plane.
+    pub const UNREACHABLE: &'static str = "unreachable";
+
+    pub(crate) fn client_failure(code: &str, message: String) -> Self {
+        Self {
+            error_class: Self::UNAVAILABLE.to_owned(),
+            code: code.to_owned(),
+            message,
+            http_status: None,
+            grpc_status: None,
+        }
+    }
+}
+
 /// Error returned by the SDK.
 #[derive(Debug, Error)]
 pub enum Error {

@@ -497,3 +497,38 @@ fn grpc_values_follow_the_servers_rule() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_timeout_and_an_unreachable_plane_are_the_same_refusal_on_both_transports() {
+    // BUG-0284: a client-side failure is `unavailable` with one code, whatever the scheme.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let held = silent.local_addr().unwrap().port();
+    let gone = {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        closed.local_addr().unwrap().port()
+    };
+    for scheme in ["http", "grpc"] {
+        for (port, code) in [
+            (held, crate::Refusal::TIMEOUT),
+            (gone, crate::Refusal::UNREACHABLE),
+        ] {
+            let client = Client::with_options(
+                format!("{scheme}://127.0.0.1:{port}"),
+                ClientOptions::default().with_timeout(std::time::Duration::from_millis(500)),
+            )
+            .unwrap();
+            let started = std::time::Instant::now();
+            let error = client.evaluate(&sample_request()).await.unwrap_err();
+            let Error::Refusal(refusal) = error else {
+                panic!("{scheme}:{code}: not a refusal: {error:?}");
+            };
+            assert_eq!(
+                (scheme, refusal.error_class.as_str(), refusal.code.as_str()),
+                (scheme, crate::Refusal::UNAVAILABLE, code),
+                "{refusal:?}"
+            );
+            assert!(started.elapsed() < std::time::Duration::from_secs(3));
+        }
+    }
+    drop(silent);
+}

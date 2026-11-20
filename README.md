@@ -95,6 +95,7 @@ A ledger whose manifest declares other profiles is asked with the profile's name
 
 A deny is not an error: it is a successful response whose `decision` is `false`.
 Validation, authorization, availability and server failures are `Error::Refusal`, with their stable `error_class` and `code`, and the HTTP or gRPC status they came with.
+A data plane that does not answer in time is class `unavailable` and code `timeout` (`Refusal::TIMEOUT`), one that cannot be reached class `unavailable` and code `unreachable` (`Refusal::UNREACHABLE`), the same on HTTP and gRPC.
 Every other `Error` variant says the endpoint, an option or the transport failed before Permguard answered.
 
 Each decision's `context.evidence` says how the plane recorded it: its `mode`, its `status` and, once recorded, its `record_id` and `position`.
