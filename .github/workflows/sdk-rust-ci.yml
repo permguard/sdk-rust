@@ -26,6 +26,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
 
+      - name: pdp.proto is the one PERMGUARD_CONTRACT names
+        run: bash scripts/check-contract.sh proto/pdp.proto
+
       - name: Verify the committed gRPC bindings are current
         run: |
           PERMGUARD_REGENERATE_PROTO=1 cargo build --locked

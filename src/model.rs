@@ -131,6 +131,9 @@ pub struct EvaluateRequest {
     pub options: Option<EvaluationOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Asks for a signed response: base64url without padding, 16 to 64 bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_nonce: Option<String>,
 }
 
 impl EvaluateRequest {
@@ -149,6 +152,7 @@ impl EvaluateRequest {
             evaluations: Vec::new(),
             options: None,
             request_id: None,
+            request_nonce: None,
         }
     }
 }
@@ -173,6 +177,36 @@ pub struct DecisionContext {
     pub policies: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub absent_inputs: Vec<String>,
+    /// How the decision was recorded, when the PDP records evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<Evidence>,
+}
+
+/// Where a recorded decision sits in its host's evidence stream.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidencePosition {
+    pub host_id: String,
+    pub run: String,
+    pub sequence: String,
+}
+
+/// The evidence record of a decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Evidence {
+    pub mode: String,
+    pub status: String,
+    #[serde(default)]
+    pub record_id: Option<String>,
+    #[serde(default)]
+    pub position: Option<EvidencePosition>,
+}
+
+/// A signed response: the compact JWS parts over the decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attestation {
+    pub protected: String,
+    pub payload: String,
+    pub signature: String,
 }
 
 /// One item in a boxcarred response.
@@ -195,6 +229,9 @@ pub struct EvaluateResponse {
     pub context: Option<DecisionContext>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evaluations: Vec<Decision>,
+    /// Present when the request carried a nonce and the PDP signed the response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attestation: Option<Attestation>,
 }
 
 /// HTTP bindings advertised by the PDP.
@@ -221,4 +258,32 @@ pub struct Configuration {
     pub endpoints: Endpoints,
     pub capabilities: Vec<String>,
     pub store_scope: StoreScope,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub component: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+    #[serde(default)]
+    pub limits: BTreeMap<String, u64>,
+    #[serde(default)]
+    pub response_signing: ResponseSigning,
+}
+
+/// Whether the PDP signs a response a request asks it to sign.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponseSigning {
+    pub state: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub validity_seconds: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub clock_skew_seconds: u32,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }

@@ -269,6 +269,7 @@ impl proto::policy_decision_point_server::PolicyDecisionPoint for TestPdp {
                 ledger: "ledger".to_owned(),
                 profile: "profile".to_owned(),
             }),
+            ..proto::GetConfigurationResponse::default()
         }))
     }
 }
@@ -297,6 +298,7 @@ fn respond(request: proto::EvaluateRequest) -> Result<Response<proto::EvaluateRe
         request_id: request.request_id,
         context: None,
         evaluations: Vec::new(),
+        attestation: None,
     }))
 }
 

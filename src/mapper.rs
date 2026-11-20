@@ -8,8 +8,9 @@ use serde_json::{Map, Number};
 
 use crate::error::Error;
 use crate::model::{
-    Action, Configuration, Decision, DecisionContext, Endpoints, Entity, EvaluateRequest,
-    EvaluateResponse, Evaluation, EvaluationsSemantic, PartitionInput, Reason, StoreScope,
+    Action, Attestation, Configuration, Decision, DecisionContext, Endpoints, Entity,
+    EvaluateRequest, EvaluateResponse, Evaluation, EvaluationsSemantic, Evidence, EvidencePosition,
+    PartitionInput, Reason, ResponseSigning, StoreScope,
 };
 use crate::proto;
 
@@ -41,6 +42,7 @@ pub(crate) fn request_to_proto(source: &EvaluateRequest) -> Result<proto::Evalua
         ),
         request_id: source.request_id.clone().unwrap_or_default(),
         partition_inputs: inputs_to_proto(&source.partition_inputs)?,
+        request_nonce: source.request_nonce.clone().unwrap_or_default(),
     })
 }
 
@@ -172,6 +174,11 @@ pub(crate) fn response_from_proto(source: proto::EvaluateResponse) -> EvaluateRe
             .into_iter()
             .map(decision_from_proto)
             .collect(),
+        attestation: source.attestation.map(|a| Attestation {
+            protected: a.protected,
+            payload: a.payload,
+            signature: a.signature,
+        }),
     }
 }
 
@@ -190,6 +197,20 @@ fn context_from_proto(source: proto::DecisionContext) -> DecisionContext {
         reason_user: source.reason_user.map(reason_from_proto),
         policies: source.policies,
         absent_inputs: source.absent_inputs,
+        evidence: source.evidence.map(evidence_from_proto),
+    }
+}
+
+fn evidence_from_proto(source: proto::Evidence) -> Evidence {
+    Evidence {
+        mode: source.mode,
+        status: source.status,
+        record_id: source.record_id,
+        position: source.position.map(|p| EvidencePosition {
+            host_id: p.host_id,
+            run: p.run,
+            sequence: p.sequence,
+        }),
     }
 }
 
@@ -217,6 +238,20 @@ pub(crate) fn configuration_from_proto(source: proto::GetConfigurationResponse) 
             ledger: scope.ledger,
             profile: scope.profile,
         },
+        version: source.version,
+        component: source.component,
+        state: source.state,
+        stage: source.stage,
+        sunset: source.sunset,
+        limits: source.limits.into_iter().collect(),
+        response_signing: source
+            .response_signing
+            .map(|r| ResponseSigning {
+                state: r.state,
+                validity_seconds: r.validity_seconds,
+                clock_skew_seconds: r.clock_skew_seconds,
+            })
+            .unwrap_or_default(),
     }
 }
 

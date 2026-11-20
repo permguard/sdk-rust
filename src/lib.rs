@@ -17,12 +17,14 @@ mod proto {
 pub use client::{Client, ClientOptions};
 pub use error::{Error, Refusal};
 pub use model::{
-    Action, Configuration, Decision, DecisionContext, Endpoints, Entity, EvaluateRequest,
-    EvaluateResponse, Evaluation, EvaluationOptions, EvaluationsSemantic, PartitionInput, Reason,
-    StoreScope,
+    Action, Attestation, Configuration, Decision, DecisionContext, Endpoints, Entity,
+    EvaluateRequest, EvaluateResponse, Evaluation, EvaluationOptions, EvaluationsSemantic,
+    Evidence, EvidencePosition, PartitionInput, Reason, ResponseSigning, StoreScope,
 };
 /// The TLS configuration of a `grpcs://` endpoint, as [`ClientOptions::with_grpc_tls`] takes it.
 pub use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 
+#[cfg(test)]
+mod evidence_tests;
 #[cfg(test)]
 mod tests;
